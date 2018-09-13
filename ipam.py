@@ -12,6 +12,14 @@ import collections
 
 #databse table ipaddress specfier.
 prefix_spec = {
+	"id": {
+		"column": "id",
+		"autofill": True
+	},
+	"prefix": {
+		"column": "prefix",
+		"autofill": False
+	},
 	"addrspace": {
 		"column": "addrspace",
 		"autofill": False
@@ -20,12 +28,12 @@ prefix_spec = {
 		"column": "vrf",
 		"autofill": False
 	},
-	"appretain": {
-		"column": "appretain",
+	"reservednode": {
+		"column": "reservednode",
 		"autofill": False
 	},
-	"location": {
-		"column": "location",
+	"assignednode": {
+		"column": "assignednode",
 		"autofill": False
 	},
 	"expires": {
@@ -72,6 +80,10 @@ prefix_spec = {
 		"column": "casttype",
 		"autofill": False
 	},
+	"nettype": {
+		"column": "nettype",
+		"autofill": False
+	},
 	"share": {
 		"column": "share",
 		"autofill": False
@@ -80,20 +92,11 @@ prefix_spec = {
 		"column": "usagetype",
 		"autofill": False
 	},
-	"prefix": {
-		"column": "prefix",
+	"leaf": {
+		"column": "leaf",
 		"autofill": False
 	},
-	"prefixid": {
-		"column": "prefixid",
-		"autofill": True
-	},
-	"parentprefix": {
-		"column": "parentprefix",
-		"autofill": False
-	}
 }
-
 
 class IPAM():
 	
@@ -270,12 +273,132 @@ class IPAM():
 		except psycopg2.Warning as warn:
 			self._logger.warning(warn)  
 
+	def sql_expand_insert(self, spec, key_prefix = '', col_prefix = ''):
+		""" Expand a dict so it fits in a INSERT clause
+		"""
+		col = list(spec)
+		sql = '('
+		sql += ', '.join(col_prefix + key for key in col)
+		sql += ') VALUES ('
+		sql += ', '.join('%(' + key_prefix + key + ')s' for key in col)
+		sql += ')'
+		params = {}
+		for key in spec:
+			params[key_prefix + key] = spec[key]
 
+		return sql, params
+
+
+
+	def sql_expand_update(self, spec, key_prefix = '', col_prefix = ''):
+		""" Expand a dict so it fits in a INSERT clause
+		"""
+		sql = ', '.join(col_prefix + key + ' = %(' + key_prefix + key + ')s' for key in spec)
+		params = {}
+		for key in spec:
+			params[key_prefix + key] = spec[key]
+
+		return sql, params
+
+
+
+	def sql_expand_where(self, spec, key_prefix = '', col_prefix = ''):
+		""" Expand a dict so it fits in a WHERE clause
+			Logical operator is AND.
+		"""
+
+		sql = ' AND '.join(col_prefix + key +
+			( ' IS ' if spec[key] is None else ' = ' ) +
+			'%(' + key_prefix + key + ')s' for key in spec)
+		params = {}
+		for key in spec:
+			params[key_prefix + key] = spec[key]
+
+		return sql, params
+
+	@staticmethod
+	def verify_attribute(input_attr, required_attr, refer_attr):
+		#
+		#input_attr, refer_attr is a dict.
+		#required_attr is a list.
+		#
+
+		overlap_attr = set(input_attr.keys().extend(refer_attr.keys()))
+
+		if len(overlap_attr) < len(input_attr):
+			raise IPAMValueError("Input attribute has more paramters than reference attribute.")
+		
+		overlap_attr = set(input_attr.keys().extend(required_attr))
+
+		if len(overlap_attr) < len(required_attr):
+			raise IPAMValueError("Input attribute misses some paramters.")
+		
 
 	def add_new_prefix(self, attr):
 
 		if not isinstance(attr, dict):
 			raise IPAMInvalidValueTypeError("Parameter attr expects dict but gets %s." % type(attr))
+		
+		if "addrspace" not in attr:
+			raise IPAMValueError("Input parameter miss the 'addrspace' attribute.")
+
+		addrspace = attr["addrspace"]
+		#For internet address
+		if addrspace == 1:
+			required_attr = [
+				"prefix",
+				"reservednode",
+				"provider",
+				"casttype",
+				"nettype",]
+
+		#For intranet address
+		elif addrspace == 2:
+			required_attr = ["prefix"]
+
+		else:
+			raise IPAMValueError("Address Space expects but get None!")
+
+		verify_attribute(attr, required_attr, prefix_spec)
+
+		attr["addrfamily"] = self.get_addrfamily(attr["prefix"])
+		
+		insert, params = self.sql_expand_insert(attr)
+
+		sql = "INSERT INTO ip_net_assign %s RETURNING id" % insert
+
+		self.exec_sql(sql, params)
+		record_id = next(self._curs_pg)
+		self.commit()
+
+		return record_id
+
+
+
+
+
+
+    "id" serial2,
+    "prefix" inet PRIMARY KEY,
+    "addrspace" int2 DEFAULT NULL,
+    "vrf" char(10) DEFAULT 'global',
+    "reservednode" int2 DEFAULT NULL,
+    "assignednode" int2 DEFAULT NULL,
+    "expires" date DEFAULT NULL,
+    "industry" int2 DEFAULT NULL,
+    "provider" char(20) DEFAULT NULL,
+    "customer" char(20) DEFAULT NULL,
+    "assignstatus" int2 DEFAULT 0,
+    "description" int2 DEFAULT NULL,
+    "comment" int2 DEFAULT NULL,
+    "tags" int2 DEFAULT NULL,
+    "application" int2 DEFAULT NULL,
+    "addrfamily" int2 NOT NULL,
+    "casttype" int2 DEFAULT NULL,
+    "nettype" int2 DEFAULT NULL,
+    "share" bool DEFAULT true,
+    "usagetype" int2 DEFAULT NULL,
+    "leaf" bool DEFAULT false, 
 		
 				
 
