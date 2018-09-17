@@ -1,54 +1,7 @@
-CREATE TABLE "public"."ipaddress" (
-  "addrspace" int2 DEFAULT NULL,
-  "vrf" char(10) COLLATE "pg_catalog"."default" DEFAULT 'global'::bpchar,
-  "appretain" int4 DEFAULT NULL,
-  "location" int4 DEFAULT NULL,
-  "expires" date DEFAULT NULL,
-  "industry" int2 DEFAULT NULL,
-  "provider" char(20) COLLATE "pg_catalog"."default" DEFAULT NULL::bpchar,
-  "customer" char(20) COLLATE "pg_catalog"."default" DEFAULT NULL::bpchar,
-  "assignstatus" int2 DEFAULT 0,
-  "description" int4 DEFAULT NULL,
-  "comment" int4 DEFAULT NULL,
-  "tags" int4 DEFAULT NULL,
-  "application" int2 DEFAULT NULL,
-  "addrfamily" int2 NOT NULL DEFAULT NULL,
-  "casttype" int2 DEFAULT NULL,
-  "nettype" int2 DEFAULT NULL,
-  "share" bool DEFAULT true,
-  "usagetype" char(30) COLLATE "pg_catalog"."default" DEFAULT NULL::bpchar,
-  "prefix" inet NOT NULL DEFAULT NULL,
-  "prefixid" int4 NOT NULL DEFAULT nextval('ipaddress_prefixid_seq'::regclass),
-  "parentprefix" int4 NOT NULL DEFAULT NULL,
-  CONSTRAINT "ipaddress_pkey" PRIMARY KEY ("prefix"),
-  CONSTRAINT "prefixid_unikey" UNIQUE ("prefixid")
-)
-;
-
-ALTER TABLE "public"."ipaddress" 
-  OWNER TO "postgres";
-
-COMMENT ON COLUMN "public"."ipaddress"."addrspace" IS 'internet(1), intranet(2)';
-
-COMMENT ON COLUMN "public"."ipaddress"."industry" IS 'JDCOM(1),JDCLOUD(2)';
-
-COMMENT ON COLUMN "public"."ipaddress"."assignstatus" IS 'Idle(0), Reserved(1), Assigned(2), Quarantine(3)';
-
-COMMENT ON COLUMN "public"."ipaddress"."addrfamily" IS 'IPv4(4), IPv6(6)';
-
-COMMENT ON COLUMN "public"."ipaddress"."casttype" IS 'Unicast(1), Anycast(2), Multicast(3)';
-
-COMMENT ON COLUMN "public"."ipaddress"."nettype" IS 'Dynamic(BGP)(1), ProxyCast(2), ChinaTelecom(3), ChinaUnicom(4), ChinaMobile(5), Common(6), DualDynamic(BGP)(7), EducationNetwork(8), null(0)';
-
-COMMENT ON COLUMN "public"."ipaddress"."usagetype" IS 'ServerServiceAddress(1), ServerManagentAddress(2), VitrualServerAddress(3), NetworkDviceInbandManagementAddress(4), NetworkDviceInbandManagementAddress(5), NetworkDeviceInterconnectionAddress(6), ServerInterconnectionAddress(7)';
-
-COMMENT ON COLUMN "public"."ipaddress"."parentprefix" IS '0 means root node.';
-
-
 
 CREATE TABLE ip_net_assign (
     "id" serial2,
-    "prefix" inet PRIMARY KEY,
+    "prefix" inet DEFAULT NULL,
     "addrspace" int2 DEFAULT NULL,
     "vrf" char(10) DEFAULT 'global',
     "reservednode" int2 DEFAULT NULL,
@@ -67,5 +20,53 @@ CREATE TABLE ip_net_assign (
     "nettype" int2 DEFAULT NULL,
     "share" bool DEFAULT true,
     "usagetype" int2 DEFAULT NULL,
-    "leaf" bool DEFAULT false,  
-)
+    "leaf" bool DEFAULT false,
+    PRIMARY KEY ("prefix", "vrf")
+);
+
+COMMENT ON COLUMN "ip_net_assign"."addrspace" IS 'internet(1), intranet(2)';
+COMMENT ON COLUMN "ip_net_assign"."industry" IS 'JDCOM(1),JDCLOUD(2)';
+COMMENT ON COLUMN "ip_net_assign"."assignstatus" IS 'Idle(0), Reserved(1), Assigned(2), Quarantine(3)';
+COMMENT ON COLUMN "ip_net_assign"."addrfamily" IS 'IPv4(4), IPv6(6)';
+COMMENT ON COLUMN "ip_net_assign"."casttype" IS 'Unicast(1), Anycast(2), Multicast(3)';
+COMMENT ON COLUMN "ip_net_assign"."nettype" IS 'Dynamic(BGP)(1), ProxyCast(2), ChinaTelecom(3), ChinaUnicom(4), ChinaMobile(5), Common(6), DualDynamic(BGP)(7), EducationNetwork(8), null(0)';
+COMMENT ON COLUMN "ip_net_assign"."usagetype" IS 'ServerServiceAddress(1), ServerManagentAddress(2), VitrualServerAddress(3), NetworkDviceInbandManagementAddress(4), NetworkDviceInbandManagementAddress(5), NetworkDeviceInterconnectionAddress(6), ServerInterconnectionAddress(7)';
+COMMENT ON COLUMN "ip_net_assign"."parentprefix" IS '0 means root node.';
+
+
+CREATE TABLE ip_net_provider (
+    "id" serial2,
+    "fullname" char(30) DEFAULT NULL,
+    "name" char(20) PRIMARY KEY,
+    "description" char(50) DEFAULT NULL
+);
+
+
+CREATE TABLE ip_net_node(
+	"id" serial2 PRIMARY KEY,
+	"zone" int2[] DEFAULT NULL,
+	"datacenter" char(10)[] DEFAULT NULL,
+	"pod" char(10)[] DEFAULT NULL,
+	"rack" char(15)[] DEFAULT NULL,
+	"device" char(39)[] DEFAULT NULL
+);
+
+COMMENT ON COLUMN "ip_net_node"."zone" IS 'Northern(1), Eastern(2), Southern(3), Western(4), Central(5), VERSEAN(6)';
+COMMENT ON COLUMN "ip_net_node"."device" IS 'Device is a switch or a server''s management ip address';
+
+
+CREATE TABLE ip_net_note(
+	"id" serial2 PRIMARY KEY,
+  "note" text 
+);
+
+
+CREATE TABLE ip_net_user(
+	"id" serial2,
+  "username" char(10),
+  "mail" char(20) PRIMARY KEY,
+  "erp" char(15) DEFAULT NULL,
+  "phone" char(11) DEFAULT NULL,
+  "department" varchar(50) DEFAULT NULL,
+  "gm"  char(20) DEFAULT NULL
+);
