@@ -374,8 +374,11 @@ class IPAM():
 		return attr
 
 
-	def exist_prefix(self, prefix, vrf="global"):
-		sql = """SELECT count(id) FROM ip_net_assign WHERE '%s'::INET <<= prefix AND vrf = '%s'""" % (prefix, vrf)
+	def exist_prefix(self, prefix, vrf="global", strict=False):
+		if strict:
+			sql = """SELECT count(id) FROM ip_net_assign WHERE '%s'::INET = prefix AND vrf = '%s'""" % (prefix, vrf)
+		else:
+			sql = """SELECT count(id) FROM ip_net_assign WHERE '%s'::INET <<= prefix AND vrf = '%s'""" % (prefix, vrf)
 
 		self._logger.info("Execute %s." %sql)
 		self.sql_execute(sql)
@@ -805,5 +808,4 @@ if __name__ == "__main__":
 
 	finally:	
 		ipam.close_db()
-
 
