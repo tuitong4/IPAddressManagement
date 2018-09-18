@@ -502,7 +502,7 @@ class IPAM():
 		refer_attr = self.get_prefix(attr={"prefix":refer_prefix, "vrf":attr["vrf"]}, wrap=True)[0]
 		
 		if refer_attr["assignstatus"] == ASSIGNED:
-			raise IPAMValueError("Prefix %s is already assigned." % sub_prefix)
+			raise IPAMDuplicateError("Prefix %s is already assigned." % sub_prefix)
 		
 		if attr.get("reservednode") == None:
 			attr["reservednode"] = refer_attr["reservednode"]
@@ -544,9 +544,13 @@ class IPAM():
 				required_attr = ["prefix"]
 
 			self.verify_attribute(attr, required_attr)
-			
-			insert, params = self.sql_expand_insert(attr)
-			sql = "INSERT INTO ip_net_assign %s RETURNING id" % insert
+			if refer_attr["leaf"] is False:
+				insert, params = self.sql_expand_insert(attr)
+				sql = "INSERT INTO ip_net_assign %s RETURNING id" % insert
+			else:
+				update, params = self.sql_expand_update(attr)
+				sql = "UPDATE ip_net_assign SET %s RETURNING id" % update
+
 			self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
 			self.sql_execute(sql, params)
 
@@ -585,7 +589,24 @@ class IPAM():
 
 
 	def update_prefix(self, attr):
-		pass
+		un_updated_attr = ["id", "addrspace", "provider", "addrfamily", "nettype"]
+
+		for _attr in un_updated_attr:
+			if _attr in attr.keys():
+				raise IPAMUnupdateValueError("%s is not been update. You can delete the prefix then readd it." %_attr)
+		
+		assign_status = attr.get("assignstatus")
+
+		if assign_status == RESERVED or assign_status == QUARANTINE:
+			attr["assignednode"] = None
+		
+		update, params = self.sql_expand_update(attr)
+		sql = """UPDATE ip_net_assign SET %s WHERE '%s'::INET = prefix AND vrf = '%s' """ % (update, attr["prefix"], attr["vrf"])
+		self.sql_execute(sql, params)
+		self.sql_commit()
+
+		return
+
 
 	def exist_provider(self, provider_name):
 		sql = """SELECT count(id) FROM ip_net_provider WHERE name = '%s'""" % provider_name
