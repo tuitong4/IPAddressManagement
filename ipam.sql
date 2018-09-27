@@ -3,13 +3,13 @@ CREATE TABLE ip_net_assign (
     "id" serial2,
     "prefix" inet DEFAULT NULL,
     "addrspace" int2 DEFAULT NULL,
-    "vrf" char(10) DEFAULT 'global',
+    "vrf" varchar(10) DEFAULT 'global',
     "reservednode" int2 DEFAULT NULL,
     "assignednode" int2 DEFAULT NULL,
     "expires" date DEFAULT NULL,
     "industry" int2 DEFAULT NULL,
-    "provider" char(20) DEFAULT NULL,
-    "customer" char(20) DEFAULT NULL,
+    "provider" varchar(20) DEFAULT NULL,
+    "customer" varchar(20) DEFAULT NULL,
     "assignstatus" int2 DEFAULT 0,
     "description" int2 DEFAULT NULL,
     "comment" int2 DEFAULT NULL,
@@ -21,6 +21,7 @@ CREATE TABLE ip_net_assign (
     "share" bool DEFAULT true,
     "usagetype" int2 DEFAULT NULL,
     "leaf" bool DEFAULT false,
+    "root" bool DEFAULT false,
     PRIMARY KEY ("prefix", "vrf")
 );
 
@@ -31,7 +32,7 @@ COMMENT ON COLUMN "ip_net_assign"."addrfamily" IS 'IPv4(4), IPv6(6)';
 COMMENT ON COLUMN "ip_net_assign"."casttype" IS 'Unicast(1), Anycast(2), Multicast(3)';
 COMMENT ON COLUMN "ip_net_assign"."nettype" IS 'Dynamic(BGP)(1), ProxyCast(2), ChinaTelecom(3), ChinaUnicom(4), ChinaMobile(5), Common(6), DualDynamic(BGP)(7), EducationNetwork(8), null(0)';
 COMMENT ON COLUMN "ip_net_assign"."usagetype" IS 'ServerServiceAddress(1), ServerManagentAddress(2), VitrualServerAddress(3), NetworkDviceInbandManagementAddress(4), NetworkDviceInbandManagementAddress(5), NetworkDeviceInterconnectionAddress(6), ServerInterconnectionAddress(7)';
-COMMENT ON COLUMN "ip_net_assign"."parentprefix" IS '0 means root node.';
+COMMENT ON COLUMN "ip_net_assign"."root" IS 'True means root node.';
 
 
 CREATE TABLE ip_net_provider (

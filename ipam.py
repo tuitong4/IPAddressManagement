@@ -87,7 +87,7 @@ prefix_spec = {
 	},
 	"share": {
 		"column": "share",
-		"autofill": False
+		"autofill": True
 	},
 	"usagetype": {
 		"column": "usagetype",
@@ -97,7 +97,37 @@ prefix_spec = {
 		"column": "leaf",
 		"autofill": False
 	},
+	"root": {
+		"column": "leaf",
+		"autofill": True
+	},
 }
+
+#databse table ip_net_assign column name.
+prefix_table_column_name = [
+	"id",
+	"prefix",
+	"addrspace",
+	"vrf",
+	"reservednode",
+	"assignednode",
+	"expires",
+	"industry",
+	"provider",
+	"customer",
+	"assignstatus",
+	"description",
+	"comment",
+	"tags",
+	"application",
+	"addrfamily",
+	"casttype",
+	"nettype",
+	"share",
+	"usagetype",
+	"leaf",
+	"root"]
+
 
 #databse table ip_net_provider specfier.
 provider_spec =	{
@@ -264,6 +294,7 @@ class IPAM():
 				raise IPAMValueError(err_str)
 			
 			m = re.search(r'invalid input syntax for(?: type)? (\w+): "([^"]+)"', e.pgerror)
+
 			if m is not None:
 				if m.group(1) in ["cidr", "inet"]:
 					err_str = "Invalid syntax for prefix (%s)" % m.group(2)
@@ -357,11 +388,11 @@ class IPAM():
 		
 	@staticmethod
 	def adapt_attribute(input_attr, refer_attr):
-		#Fit input_attr to refer_attr, return a new fitted attribute.
+		# Fit input_attr to refer_attr, return a new fitted attribute.
 		#
-		#input_attr is a dict like {"attr_name":"attr_value"}.
-		#refer_attr is a specifier that decribes the relationship bettwen input_attr
-		#and the databse data struct. It is like {"attr_name": {"column":"column_name",
+		# input_attr is a dict like {"attr_name":"attr_value"}.
+		# refer_attr is a specifier that decribes the relationship bettwen input_attr
+		# and the databse data struct. It is like {"attr_name": {"column":"column_name",
 		#  "other_key":"other_val"}}.
 		#
 
@@ -374,8 +405,14 @@ class IPAM():
 		return attr
 
 
-	def exist_prefix(self, prefix, vrf="global"):
-		sql = """SELECT count(id) FROM ip_net_assign WHERE '%s'::INET <<= prefix AND vrf = '%s'""" % (prefix, vrf)
+	def exist_prefix(self, prefix, vrf="global", strict=False):
+		#
+		# strict is comparing prefixs exactly.
+		#
+		if not strict:
+			sql = """SELECT count(id) FROM ip_net_assign WHERE '%s'::INET <<= prefix AND vrf = '%s'""" % (prefix, vrf)
+		else:
+			sql = """SELECT count(id) FROM ip_net_assign WHERE '%s'::INET = prefix AND vrf = '%s'""" % (prefix, vrf)
 
 		self._logger.info("Execute %s." %sql)
 		self.sql_execute(sql)
@@ -385,39 +422,34 @@ class IPAM():
 			return False 
 
 
-	def add_prefix(self, attr):
-		if not isinstance(attr, dict):
-			raise IPAMInvalidValueTypeError("Parameter attr expects dict but gets %s." % type(attr))
-		
-		if "addrspace" not in attr:
-			raise IPAMValueError("Input parameter miss the 'addrspace' attribute.")
+	def add_root_prefix(self, prefix=None, addrspace=None, vrf="global", 
+						provider=None, casttype=1, nettype=None):
+		if addrspace is None:
+			raise IPAMValueError("Addrspace is expected but get 'None'.")
 
-		addrspace = attr["addrspace"]
-		#For internet address
-		if addrspace == 1:
-			required_attr = [
-				"prefix",
-				"reservednode",
-				"provider",
-				"casttype",
-				"nettype",]
+		if prefix is None:
+			raise IPAMValueError("Prefix is expected but get 'None'.")
+		#init sql parameter
+		attr = {}
+		attr ["prefix"] = prefix
+		attr ["addrspace"] = addrspace
+		attr ["vrf"] = vrf
+		if provider is not None:
+			attr ["provider"] = provider
 
-		#For intranet address
-		elif addrspace == 2:
-			required_attr = ["prefix"]
+		attr ["casttype"] = casttype
+		if nettype is not None:
+			attr ["nettype"] = nettype
 
-		else:
-			raise IPAMValueError("Address Space expects but get None!")
+		attr["addrfamily"] = self.get_addrfamily(prefix)
 
-		self.verify_attribute(attr, required_attr)
-
-		attr["addrfamily"] = self.get_addrfamily(attr["prefix"])
+		attr["root"] = True
 		
 		insert, params = self.sql_expand_insert(attr)
 		sql = "INSERT INTO ip_net_assign %s RETURNING id" % insert
 
-		if self.exist_prefix(attr["prefix"]):
-			raise IPAMDuplicateError("Prefix '%s' is already exists." %attr["prefix"] )
+		#if self.exist_prefix(attr["prefix"]):
+		#	raise IPAMDuplicateError("Prefix '%s' is already exists." %attr["prefix"] )
 
 		self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
 		self.sql_execute(sql, params)
@@ -427,6 +459,30 @@ class IPAM():
 
 		return record_id
 
+	def _add_prefix(self, attr):
+
+		insert, params = self.sql_expand_insert(attr)
+		sql = "INSERT INTO ip_net_assign %s RETURNING id" % insert
+
+		self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
+		self.sql_execute(sql, params)
+		record_id = next(self._curs_pg)[0]
+
+		self.sql_commit()
+
+		return record_id
+
+	def _update_prefix(self, attr, prefix):
+		update, params = self.sql_expand_update(attr)
+		sql = "UPDATE ip_net_assign SET %s WHERE prefix = '%s'::INET RETURNING id" % (update, prefix)
+		print(sql, params)
+		self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
+		self.sql_execute(sql, params)
+		record_id = next(self._curs_pg)[0]
+
+		self.sql_commit()
+
+		return record_id
 
 	def get_prefix(self, attr, wrap=False):
 		if not isinstance(attr, dict):
@@ -441,32 +497,10 @@ class IPAM():
 		if resp is None:
 			return None
 		if wrap:
-			table_column_name = [
-				"id",
-				"prefix",
-				"addrspace",
-				"vrf",
-				"reservednode",
-				"assignednode",
-				"expires",
-				"industry",
-				"provider",
-				"customer",
-				"assignstatus",
-				"description",
-				"comment",
-				"tags",
-				"application",
-				"addrfamily",
-				"casttype",
-				"nettype",
-				"share",
-				"usagetype",
-				"leaf"]
 			records = []
 			for item in resp:
 				record = {}
-				for idx, col in enumerate(table_column_name):
+				for idx, col in enumerate(prefix_table_column_name):
 					record[col] = item[idx]
 
 				records.append(record)
@@ -477,7 +511,7 @@ class IPAM():
 
 	def assign_prefix(self, attr, refer_prefix=None):
 		# --Prameters--
-		# attr is sub prefix's args.
+		# attr is the sub prefix's args.
 		# refer_prefix is the parent prefix of sub prefix.
 		# 
 		# --Assignment--
@@ -491,7 +525,11 @@ class IPAM():
 		sub_prefix = attr["prefix"]
 
 		if IPy.IP(sub_prefix) not in IPy.IP(refer_prefix):
-			raise IPAMValueError("Prefix %s is not a subprefix of %s." % (sub_prefix, refer_prefix))
+			raise IPAMValueError("Prefix %s is not a sub prefix of %s." % (sub_prefix, refer_prefix))
+		
+		if IPy.IP(sub_prefix) == IPy.IP(refer_prefix) and refer_prefix["root"]:
+			self.update_prefix(attr)
+			return
 
 		if attr.get("vrf") is None:
 			attr["vrf"] = "global"
@@ -501,88 +539,137 @@ class IPAM():
 		if refer_attr["assignstatus"] == ASSIGNED:
 			raise IPAMValueError("Prefix %s is already assigned." % sub_prefix)
 		
-		if attr.get("reservednode") == None:
-			attr["reservednode"] = refer_attr["reservednode"]
+		#if attr.get("reservednode") == None:
+		#	attr["reservednode"] = refer_attr["reservednode"]
 
-		fix_attr = ["addrspace", "vrf", "addrfamily", "nettype", "provider"]
+		fix_attr = ["addrspace", "addrfamily", "nettype", "provider", "addrfamily"]
 		for _attr in fix_attr:
 			attr[_attr] = refer_attr[_attr]
 
 		
 		if attr["assignstatus"] == ASSIGNED:
-			required_attr = ["prefix", "customer", "application"]
+			required_attr = ["prefix", "customer", "application", "share", "usagetype", "casttype"]
 			attr["leaf"] = True
 			self.verify_attribute(attr, required_attr)
-			
-			insert, params = self.sql_expand_insert(attr)
-			sql = "INSERT INTO ip_net_assign %s RETURNING id" % insert
-			self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
-			self.sql_execute(sql, params)
 
-			record_id = next(self._curs_pg)[0]
-			self.sql_commit()
+
+			if refer_attr.get("reservednode") is None:
+				attr["reservednode"] = attr["assignednode"]
+			else:
+				attr["reservednode"] = refer_attr["reservednode"]
 			
-			return record_id
+			if attr.get("industry") is None:
+				attr["industry"] = refer_attr.get("industry")
+
+			return self._add_prefix(attr)
 
 		if attr["assignstatus"] == RESERVED:
 			attr["leaf"] = False
 
-			#For internet address
-			if attr["addrspace"] == INTERNET:
-				required_attr = [
-					"prefix",
-					"reservednode",
-					"provider",
-					"casttype",
-					"nettype",]
-
-			#For intranet address
-			elif attr["addrspace"] == INTRANET:
-				required_attr = ["prefix"]
-
+			required_attr = ["reservednode", "prefix",  "usagetype"]
 			self.verify_attribute(attr, required_attr)
-			
-			insert, params = self.sql_expand_insert(attr)
-			sql = "INSERT INTO ip_net_assign %s RETURNING id" % insert
-			self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
-			self.sql_execute(sql, params)
 
-			record_id = next(self._curs_pg)[0]
-			self.sql_commit()
-			
-			return record_id
+			if attr.get("industry") is None:
+				attr["industry"] = refer_attr.get("industry")
+
+			return self._add_prefix(attr)
+
+		if attr["assignstatus"] == IDLE:
+			attr["leaf"] = False
+
+			return self._add_prefix(attr)
 
 		if attr["assignstatus"] == QUARANTINE:
-			attr["leaf"] = True
-			
-			#For internet address
-			if attr["addrspace"] == INTERNET:
-				required_attr = [
-					"prefix",
-					"reservednode",
-					"provider",
-					"casttype",
-					"nettype",]
+			attr["leaf"] = False
 
-			#For intranet address
-			elif attr["addrspace"] == INTRANET:
-				required_attr = ["prefix"]
+			return self._add_prefix(attr)
 
-			self.verify_attribute(attr, required_attr)
-			
-			insert, params = self.sql_expand_insert(attr)
-			sql = "INSERT INTO ip_net_assign %s RETURNING id" % insert
-			self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
-			self.sql_execute(sql, params)
-
-			record_id = next(self._curs_pg)[0]
-			self.sql_commit()
-			
-			return record_id	
+		raise IPAMValueError("Unsuport assignstatus type.")
 
 
 	def update_prefix(self, attr):
-		pass
+		# --Prameters--
+		# attr is the updated prefix's args.
+		#
+
+		#set database column to default vuale.
+		def set_default_attr(attr, default_attr):
+			for _attr in default_attr:
+				if _attr not in attr:
+					attr[_attr] = None
+
+			if "share" not in attr:
+				attr["share"] = True				
+
+
+		if attr.get("vrf") is None:
+			attr["vrf"] = "global"
+		
+		refer_attr = self.get_prefix(attr={"prefix":attr["prefix"], "vrf":attr["vrf"]}, wrap=True)[0]
+		
+
+		fix_attr = ["addrspace", "addrfamily", "nettype", "provider", "addrfamily", "root"]
+		for _attr in fix_attr:
+			attr[_attr] = refer_attr[_attr]
+
+		if attr["root"]:
+			sql = "SELECT count(*) FROM ip_net_assign WHERE prefix << '%s'::INET" % attr["prefix"]
+			self.sql_execute(sql)
+			if self._curs_pg.fetchone()[0] > 0:
+				raise IPAMDuplicateError("Prefix %s has subprefix, could not update the root prefix." % attr["prefix"] )
+		
+		if attr["assignstatus"] == ASSIGNED:
+			required_attr = ["prefix", "customer", "application", "share", "usagetype", "casttype"]
+			attr["leaf"] = True
+
+			self.verify_attribute(attr, required_attr)
+			
+			if refer_attr.get("reservednode") is None:
+				attr["reservednode"] = attr["assignednode"]
+			else:
+				attr["reservednode"] = refer_attr["reservednode"]
+			
+			if attr.get("industry") is None:
+				attr["industry"] = refer_attr.get("industry")
+
+			default_attr = ["expires", "description", "comment", "tags"]
+			set_default_attr(attr, default_attr)
+
+			return self._update_prefix(attr, attr["prefix"])
+
+		if attr["assignstatus"] == RESERVED:
+			attr["leaf"] = False
+
+			required_attr = ["reservednode", "prefix",  "usagetype"]
+			self.verify_attribute(attr, required_attr)
+
+			if attr.get("industry") is None:
+				attr["industry"] = refer_attr.get("industry")
+
+			default_attr = ["expires", "description", "comment", "tags", "assignednode",
+							"customer", "application", "casttype"]
+
+			set_default_attr(attr, default_attr)
+
+			return self._update_prefix(attr, attr["prefix"])
+
+		if attr["assignstatus"] == IDLE:
+			attr["leaf"] = False
+			default_attr = set(prefix_table_column_name) - set(fix_attr) - set(["assignstatus", "leaf", "id"])
+			print(default_attr)
+			set_default_attr(attr, default_attr)
+
+			return self._update_prefix(attr, attr["prefix"])
+
+		if attr["assignstatus"] == QUARANTINE:
+			attr["leaf"] = False
+			default_attr = set(prefix_table_column_name) - set(fix_attr) - set(["assignstatus", "leaf", "id"])
+			set_default_attr(attr, default_attr)
+
+			return self._update_prefix(attr, attr["prefix"])
+
+		raise IPAMValueError("Unsuport assignstatus type.")
+
 
 	def exist_provider(self, provider_name):
 		sql = """SELECT count(id) FROM ip_net_provider WHERE name = '%s'""" % provider_name
@@ -751,7 +838,6 @@ if __name__ == "__main__":
 
 	prefix_data = {"prefix":"101.236.226.0/24",
 			"addrspace":1,
-			"reservednode" : 10,
 			"provider": 20,
 			"casttype": 1,
 			"nettype": 1,
@@ -785,21 +871,22 @@ if __name__ == "__main__":
 		}
 
 	assign_data = {
-		"prefix":"101.236.226.128/25",
+		"prefix":"101.236.226.0/26",
 		"vrf":None,
 		"reservednode" : None,
 		"assignednode": 10,
 		"customer": "duanchengping@jd.com",
-		"usagetype" : NETWORKDVICEINBANDMANAGEMENTADDRESS,
-		"assignstatus" : RESERVED,
-		"application" : 1,
-		"casttype" : MULTICAST
+		"usagetype" : SERVERSERVICEADDRESS,
+		"assignstatus" : IDLE,
+		"application" : 10,
+		"share" : True,
+		"casttype" : UNICAST
 	}
 	try:
-		if ipam.get_prefix({"prefix" :assign_data["prefix"], "vrf":"global"}):
-			raise Exception("Duplicate Data!")
-		a = ipam.assign_prefix(assign_data, refer_prefix="101.236.226.0/24")
-		print(a)
+		#if ipam.get_prefix({"prefix" :assign_data["prefix"], "vrf":"global"}):
+		#	raise Exception("Duplicate Data!")
+		a = ipam.update_prefix(assign_data)
+
 	except Exception as e:
 		print(e)
 
