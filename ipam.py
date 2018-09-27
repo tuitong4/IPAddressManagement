@@ -537,7 +537,7 @@ class IPAM():
 		refer_attr = self.get_prefix(attr={"prefix":refer_prefix, "vrf":attr["vrf"]}, wrap=True)[0]
 		
 		if refer_attr["assignstatus"] == ASSIGNED:
-			raise IPAMValueError("Prefix %s is already assigned." % sub_prefix)
+			raise IPAMDuplicateError("Prefix %s is already assigned." % sub_prefix)
 		
 		#if attr.get("reservednode") == None:
 		#	attr["reservednode"] = refer_attr["reservednode"]
@@ -892,5 +892,4 @@ if __name__ == "__main__":
 
 	finally:	
 		ipam.close_db()
-
 

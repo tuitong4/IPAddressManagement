@@ -4,6 +4,9 @@ class IPAMError(Exception):
 class IPAMValueError(IPAMError):
     pass
 
+class IPAMUnupdateValueError(IPAMError):
+    pass
+
 class IPAMInvalidValueTypeError(IPAMValueError):
     pass
 
