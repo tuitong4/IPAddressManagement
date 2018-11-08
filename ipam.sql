@@ -1,6 +1,6 @@
 
 CREATE TABLE ip_net_assign (
-    "id" serial2,
+    "recordid" varchar(32) DEFAULT NULL,
     "prefix" inet DEFAULT NULL,
     "addrspace" int2 DEFAULT NULL,
     "vrf" varchar(10) DEFAULT 'global',
@@ -23,6 +23,7 @@ CREATE TABLE ip_net_assign (
     "leaf" bool DEFAULT false,
     "root" bool DEFAULT false,
     "updatetime" timestamp null,
+    "originalid" varchar(32) DEFAULT NULL,
     PRIMARY KEY ("prefix", "vrf")
 );
 
@@ -37,10 +38,14 @@ COMMENT ON COLUMN "ip_net_assign"."root" IS 'True means root node.';
 
 
 CREATE TABLE ip_net_assign_log (
-    "id" text,
+    "id" varchar(32) DEFAULT NULL,
+    "operation" varchar(6) DEFAULT NULL,
+    "optime" timestamp DEFAULT NULL,
+    "user" text DEFAULT NULL,
+    "recordid" varchar(32) DEFAULT NULL,
     "prefix" inet DEFAULT NULL,
     "addrspace" int2 DEFAULT NULL,
-    "vrf" varchar(10) DEFAULT 'global',
+    "vrf" varchar(10) DEFAULT NULL,
     "reservednode" int2 DEFAULT NULL,
     "assignednode" int2 DEFAULT NULL,
     "expires" date DEFAULT NULL,
@@ -57,8 +62,10 @@ CREATE TABLE ip_net_assign_log (
     "nettype" int2 DEFAULT NULL,
     "share" bool DEFAULT true,
     "usagetype" int2 DEFAULT NULL,
-    "leaf" bool DEFAULT false,
-    "root" bool DEFAULT false,
+    "leaf" bool DEFAULT NULL,
+    "root" bool DEFAULT NULL,
+    "updatetime" timestamp null,
+    "originalid" varchar(32) DEFAULT NULL,
     PRIMARY KEY ("id")
 );
 
