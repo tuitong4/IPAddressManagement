@@ -36,3 +36,7 @@ $tg_log$ LANGUAGE plpgsql;
 CREATE TRIGGER trigger_log_assign_operation 
 AFTER INSERT OR UPDATE OR DELETE ON ip_net_assign
     FOR EACH ROW EXECUTE PROCEDURE tg_log_assign_operation();
+
+
+
+select row_to_json(r) from (select * from ip_net_assign) r

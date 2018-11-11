@@ -6,6 +6,7 @@ import re
 import hashlib
 import time
 import random
+import json
 
 from errors import *
 from staticparams import *
@@ -253,9 +254,74 @@ class IPAM():
 		self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
 		self.sql_execute(sql, params)
 
+	def exist_prefix(self, prefix, vrf="global", strict=False):
+		#
+		# strict is comparing prefixs exactly.
+		#
+		if not strict:
+			sql = """SELECT count(*) FROM ip_net_assign WHERE '%s'::INET >>= prefix AND vrf = '%s'""" % (prefix, vrf)
+		else:
+			sql = """SELECT count(*) FROM ip_net_assign WHERE '%s'::INET = prefix AND vrf = '%s'""" % (prefix, vrf)
 
-	def record_history(self):
-		pass
+		self._logger.info("Execute %s." % sql)
+		self.sql_execute(sql)
+		if self._curs_pg.fetchone()[0] > 0:
+			return True
+		else:
+			return False 
+
+
+	def verify_attribute(self, orgin_attr, required_attr):
+		#
+		#orgin_attr is a dict.
+		#required_attr is a list.
+		#
+		
+		for key in required_attr:
+			try :
+				if not orgin_attr[key]:
+					raise IPAMValueError("'%s' need a pernament value rather than '' or None." % key)
+			except KeyError:
+				raise IPAMValueError("Missing atrribute '%s'." % key)
+
+	def omitte_attribute(self, orgin_attr, omitted_attr):
+		#
+		# orgin_attr is a dict.
+		# omitted_attr is a list or tuple.
+		#
+
+		for key in omitted_attr:
+			if key in orgin_attr:
+				orgin_attr.pop(key)
+
+
+	def inherit_attribute(self, orgin_attr, herit_attr, herited_attr):
+		#
+		# orgin_attr is a dict.
+		# herit_attr is a list or tuple.
+		# herited_attr is dict. which be inherited.
+		#
+
+		for key in herit_attr:
+			if key in herited_attr:
+				orgin_attr[key] = herited_attr.pop(key)
+			else:
+				raise IPAMValueError("The key '%s' is not in herit attribute.")
+
+	def inheritable_attribute(self, orgin_attr, herit_attr, herited_attr):
+		#
+		# orgin_attr is a dict.
+		# herit_attr is a list or tuple.
+		# herited_attr is dict. which be inherited.
+		#
+		for key in herit_attr:
+			if not orgin_attr[key]:
+				if key in herited_attr:
+					orgin_attr[key] = herited_attr.pop(key)
+				else:
+					raise IPAMValueError("The key '%s' is not in herit attribute.")
+
+
 
 	def add_root_prefix(self, prefix=None, addrspace=None, vrf="global", 
 						provider=None, casttype=UNICAST, nettype=None):
@@ -287,12 +353,92 @@ class IPAM():
 		attr["updatetime"] = time.time()
 
 		self._add_prefix(attr)
-		self.record_history()
-        
+
 		self.sql_commit()
 		return attr["recordid"]
 
 
+	def assign_prefix(self, attr, refer_prefix):
+		#
+		# attr is the attribute of prefix.
+		#
+		
+		sub_prefix = attr["prefix"]
+		if not sub_prefix:
+			raise IPAMValueError("Prefix should be specified!")
+		
+		if IPy.IP(sub_prefix) not in IPy.IP(refer_prefix):
+			raise IPAMValueError("Prefix %s is not a sub prefix of %s." % (sub_prefix, refer_prefix))
+		
+		self.sql_execute("SELECT row_to_json(r) FROM (SELECT * FROM ip_net_assign) r")
+		refer_attr = json.loads(self._curs_pg.fetchone[0])
+
+		if IPy.IP(sub_prefix) == IPy.IP(refer_prefix) and refer_prefix["root"]:
+			attr["root"] = True
+			self.update_prefix(attr)
+			return
+		else:
+			attr["root"] = False
+
+		if self.exist_prefix(sub_prefix, attr["vrf"]):
+			raise IPAMDuplicateError("Prefix or subprefix '%s' is already exists." % sub_prefix)
+
+		#Case 1
+		if attr["assignstatus"] == RESERVED:
+			required_attr = ("reservednode")
+			omitted_attr  = ("assignednode", "expires", "customer")
+			inherit_attr  = ("addrspace", "vrf", "provider", "addrfamily", "nettype")
+
+			self.verify_attribute(attr, required_attr)
+			self.omitte_attribute(attr, omitted_attr)
+			self.inherit_attribute(attr, inherit_attr, refer_attr)
+
+		#Case 2
+		elif attr["assignstatus"] == ASSIGNED:
+			required_attr = ("assignednode", "customer", "application", "casttype", "share", "useage")
+			inherit_attr  = ("addrspace", "vrf", "provider", "addrfamily", "nettype")
+			inheritable_attr = ("reservednode", "industry")
+
+			self.verify_attribute(attr, required_attr)
+			self.inherit_attribute(attr, inherit_attr, refer_attr)
+			self.inheritable_attribute(attr, inheritable_attr, refer_attr)
+
+			attr["leaf"] = True
+
+		#Case 3
+		elif attr["assignstatus"] == IDLE:
+			omitted_attr  = ("reservednode", "assignednode", "expires", "industry", "customer", "application", "casttype",\
+							"share", "useagetype")
+			inherit_attr  = ("addrspace", "vrf", "provider", "description", "comment", "tags", "addrfamily", "nettype")
+			
+			self.omitte_attribute(attr, omitted_attr)
+			self.inherit_attribute(attr, inherit_attr, refer_attr)
+
+			attr["leaf"] = False
+
+		#Case 4
+		elif attr["assignstatus"] == QUARANTINE:
+			omitted_attr  = ("reservednode", "assignednode", "expires", "industry", "customer", "application", "casttype",\
+							"share", "useagetype")
+			inherit_attr  = ("addrspace", "vrf", "provider", "description", "comment", "tags", "addrfamily", "nettype")
+			
+			self.omitte_attribute(attr, omitted_attr)
+			self.inherit_attribute(attr, inherit_attr, refer_attr)
+
+			attr["leaf"] = False
+		else:
+			raise IPAMValueError("Unsupported status '%s'." % attr["assignstatus"])
+
+		attr["recordid"] = md5_timestamp()
+		attr["updatetime"] = time.time()
+		attr["originalid"] = None
+
+		self._add_prefix(attr)
+		self.sql_commit()
+
+		return
 
 
-
+	def update_prefix(self, attr):
+		pass
+		
