@@ -294,6 +294,15 @@ class IPAM():
 			if key in orgin_attr:
 				orgin_attr.pop(key)
 
+	def clear_attribute(self, orgin_attr, cleared_attr):
+		#
+		# orgin_attr is a dict.
+		# cleared_attr is a list or tuple.
+		#
+		for key in cleared_attr:
+			if key in orgin_attr:
+				orgin_attr[key] = None
+
 
 	def inherit_attribute(self, orgin_attr, herit_attr, herited_attr):
 		#
@@ -308,6 +317,7 @@ class IPAM():
 			else:
 				raise IPAMValueError("The key '%s' is not in herit attribute.")
 
+
 	def inheritable_attribute(self, orgin_attr, herit_attr, herited_attr):
 		#
 		# orgin_attr is a dict.
@@ -320,7 +330,6 @@ class IPAM():
 					orgin_attr[key] = herited_attr.pop(key)
 				else:
 					raise IPAMValueError("The key '%s' is not in herit attribute.")
-
 
 
 	def add_root_prefix(self, prefix=None, addrspace=None, vrf="global", 
@@ -371,7 +380,7 @@ class IPAM():
 			raise IPAMValueError("Prefix %s is not a sub prefix of %s." % (sub_prefix, refer_prefix))
 		
 		self.sql_execute("SELECT row_to_json(r) FROM (SELECT * FROM ip_net_assign) r")
-		refer_attr = json.loads(self._curs_pg.fetchone[0])
+		refer_attr = json.loads(self._curs_pg.fetchone()[0])
 
 		if IPy.IP(sub_prefix) == IPy.IP(refer_prefix) and refer_prefix["root"]:
 			attr["root"] = True
@@ -440,5 +449,32 @@ class IPAM():
 
 
 	def update_prefix(self, attr):
-		pass
+		prefix = attr["prefix"]
+		vrf = attr["vrf"]
+
+		sql = """SELECT * FROM ip_net_assign WHERE '%s'::INET = prefix AND vrf = '%s'""" % (prefix, vrf)
+		self.sql_execute("SELECT row_to_json(r) FROM (%s) r" % sql)
+		old_attr = json.loads(self._curs_pg.fetchone()[0])		
 		
+		old_status = old_attr["assignstatus"]
+		new_status = attr["assignstatus"]
+
+		#Case 1: Assigned --> Reserved
+		if old_status == ASSIGNED and new_status == RESERVED:
+			omitted_attr = ("prefix", "vrf", "addrspace", "provider", "addrfamily", "nettype")
+
+			self.sql_execute("SELECT row_to_json(r) FROM (SELECT * FROM ip_net_assign_log where id = '%s') r" % old_attr["originalid"])
+			orgin_attr = json.loads(self._curs_pg.fetchone()[0])
+			#TODO: check orgin_attr when it is {}.
+
+			inherit_attr = ("reservednode", "industry", "description", "comment", "tags", "application", "casttype", "share", "usagetype")
+			cleared_attr = ("assignednode", "expires", "customer")
+
+			self.omitte_attribute(attr, omitted_attr)
+			self.inherit_attribute(attr, inherit_attr, old_attr)
+			self.clear_attribute(attr, cleared_attr)
+			attr["leaf"] = True
+
+		#Case 2: Assigned --> Reserved
+		elif old_status == ASSIGNED and new_status == RESERVED:	
+			pass
