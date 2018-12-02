@@ -294,13 +294,24 @@ class IPAM():
 			if key in orgin_attr:
 				orgin_attr.pop(key)
 
-	def clear_attribute(self, orgin_attr, cleared_attr):
+	def empty_attribute(self, orgin_attr, empty_attr):
 		#
 		# orgin_attr is a dict.
-		# cleared_attr is a list or tuple.
+		# empty_attr is a list or tuple.
 		#
-		for key in cleared_attr:
+		for key in empty_attr:
 			if key in orgin_attr:
+				orgin_attr[key] = None
+
+
+	def emptiable_attribute(self, orgin_attr, emptiable_attribute):
+		#
+		# orgin_attr is a dict.
+		# emptiable_attribute is a list or tuple.
+		#
+
+		for key in emptiable_attribute:
+			if key not in orgin_attr:
 				orgin_attr[key] = None
 
 
@@ -468,13 +479,138 @@ class IPAM():
 			#TODO: check orgin_attr when it is {}.
 
 			inherit_attr = ("reservednode", "industry", "description", "comment", "tags", "application", "casttype", "share", "usagetype")
-			cleared_attr = ("assignednode", "expires", "customer")
+			empty_attr = ("assignednode", "expires", "customer")
 
 			self.omitte_attribute(attr, omitted_attr)
-			self.inherit_attribute(attr, inherit_attr, old_attr)
-			self.clear_attribute(attr, cleared_attr)
+			self.inherit_attribute(attr, inherit_attr, orgin_attr)
+			self.empty_attribute(attr, empty_attr)
 			attr["leaf"] = True
 
-		#Case 2: Assigned --> Reserved
-		elif old_status == ASSIGNED and new_status == RESERVED:	
-			pass
+		#Case 2: Reserved --> Assigned
+		elif old_status == RESERVED and new_status == ASSIGNED:
+			omitted_attr = ("prefix", "vrf", "addrspace", "reservednode", "provider", "addrfamily", "nettype")
+			required_attr = ("assignednode", "industry", "application", "casttype", "share", "usagetype")
+
+			self.omitte_attribute(attr, omitted_attr)
+			self.verify_attribute(attr, required_attr)
+			attr["leaf"] = True
+
+		#Case 3: Reserved --> Reserved
+		elif old_status == RESERVED and new_status == RESERVED:
+			omitted_attr = ("prefix", "vrf", "addrspace", "assignednode", "expires", "provider", "customer", "addrfamily", "nettype")
+			required_attr = ("assignednode")
+			emptiable_attr = ("industry", "description", "comment", "tags", "application", "casttype", "share", "usagetype")
+
+			self.omitte_attribute(attr, omitted_attr)
+			self.verify_attribute(attr, required_attr)
+			self.emptiable_attribute(attr, emptiable_attr)
+
+			attr["leaf"] = True
+
+		#Case 4: Reserved --> Idle
+		elif  old_status == RESERVED and new_status == IDLE:
+			omitted_attr = ("prefix", "vrf", "addrspace", "reservednode", "expires", "provider", "customer", "addrfamily", "nettype")
+			empty_attr = ("assignednode", "industry", "description", "comment", "tags", "application", "casttype", "share", "usagetype")
+			
+			self.omitte_attribute(attr, omitted_attr)
+			self.empty_attribute(attr, empty_attr)
+
+			attr["leaf"] = False
+
+		#Case 5: Reserved --> Quarantine
+		elif  old_status == RESERVED and new_status == QUARANTINE:
+			omitted_attr = ("prefix", "vrf", "addrspace", "reservednode", "expires", "provider", "customer", "addrfamily", "nettype")
+			empty_attr = ("assignednode", "industry", "description", "comment", "tags", "application", "casttype", "share", "usagetype")
+			
+			self.omitte_attribute(attr, omitted_attr)
+			self.empty_attribute(attr, empty_attr)
+
+			attr["leaf"] = False
+
+		#Case 6: Idle --> Assigned
+		elif old_status == IDLE and new_status == ASSIGNED:
+			omitted_attr = ("prefix", "vrf", "addrspace",  "provider", "addrfamily", "nettype")
+			required_attr = ("assignednode", "industry", "customer", "application", "casttype", "share", "usagetype")
+			emptiable_attr = ("description", "comment", "tags")
+			
+			self.omitte_attribute(attr, omitted_attr)
+			self.emptiable_attribute(attr, emptiable_attr)
+			self.verify_attribute(attr, required_attr)
+
+			#If reservednode not exisits or reservednode is None, Use the value of assignednode.
+			if "reservednode" not in attr or not attr["reservednode"]:
+				 attr["reservednode"] = attr["assignednode"]
+
+			attr["leaf"] = True
+
+		#Case 7: Idle --> Reserved
+		elif old_status == IDLE and new_status == RESERVED:
+			omitted_attr = ("prefix", "vrf", "addrspace", "assignednode", "provider", "addrfamily", "nettype")
+			required_attr = ("reservednode")
+			emptiable_attr = ("description", "comment", "tags")
+			
+			self.omitte_attribute(attr, omitted_attr)
+			self.emptiable_attribute(attr, emptiable_attr)
+			self.verify_attribute(attr, required_attr)
+
+			attr["leaf"] = True
+
+		#Case 8: Idle --> Quarantine
+		elif old_status == IDLE and new_status == QUARANTINE:
+			omitted_attr = ("prefix", "addrspace", "vrf", "reservednode", "assignednode", \
+			 "expires", "industry", "provider", "customer", "description", \
+			  "comment", "tags", "application", "addrfamily", "casttype", "nettype", "share", \
+			   "usagetype", "leaf", "root")
+
+			self.omitte_attribute(attr, omitted_attr)
+		
+		#Case 9: Quarantine --> Idle
+		elif old_status == QUARANTINE and new_status == IDLE:
+			omitted_attr = ("prefix", "addrspace", "vrf", "reservednode", "assignednode", \
+			 "expires", "industry", "provider", "customer", "description", \
+			  "comment", "tags", "application", "addrfamily", "casttype", "nettype", "share", \
+			   "usagetype", "leaf", "root")
+
+			self.omitte_attribute(attr, omitted_attr)
+
+		#case 10: Quarantine -->Assigned
+		elif old_status == QUARANTINE and new_status == ASSIGNED:
+			omitted_attr = ("prefix", "vrf", "addrspace",  "provider", "addrfamily", "nettype")
+			required_attr = ("assignednode", "industry", "customer", "application", "casttype", "share", "usagetype")
+			emptiable_attr = ("description", "comment", "tags")
+			
+			self.omitte_attribute(attr, omitted_attr)
+			self.emptiable_attribute(attr, emptiable_attr)
+			self.verify_attribute(attr, required_attr)
+
+			#If reservednode not exisits or reservednode is None, Use the value of assignednode.
+			if "reservednode" not in attr or not attr["reservednode"]:
+				 attr["reservednode"] = attr["assignednode"]
+
+			attr["leaf"] = True
+
+
+		#Case 11: Quarantine --> Reserved
+		elif old_status == QUARANTINE and new_status == RESERVED:
+			omitted_attr = ("prefix", "vrf", "addrspace", "assignednode", "provider", "addrfamily", "nettype")
+			required_attr = ("reservednode")
+			emptiable_attr = ("description", "comment", "tags")
+			
+			self.omitte_attribute(attr, omitted_attr)
+			self.emptiable_attribute(attr, emptiable_attr)
+			self.verify_attribute(attr, required_attr)
+
+			attr["leaf"] = True
+
+		else:
+			raise IPAMValueError("Unsupported Change %s to %s!" % (old_status, new_status))
+
+		attr["root"] = old_attr["root"]
+		attr["recordid"] = md5_timestamp()
+		attr["updatetime"] = time.time()
+		attr["originalid"] = old_attr["recordid"]
+
+		self._add_prefix(attr)
+		self.sql_commit()
+
+		return
