@@ -155,8 +155,6 @@ class IPAM():
 	def __init__(self):
 		self._logger = logging.getLogger(self.__class__.__name__)
 
-
-
 	def is_ipv4(self, ip):
 		"""Detect if the given ip is ipv4"""
 
@@ -740,7 +738,7 @@ class IPAM():
 	def exist_node(self, node):
 		#
 		# Verfy if node is already in database.It should comapare all attributes in one row except 'id'. 
-		# Notice this verfition is base on the values inserted into db table  is sorted by list.sort().
+		# Notice this verfition is base on the values inserted into db table is sorted by list.sort().
 		# If db data is not sorted, the verfy may be fail beacause we do not check all detail 
 		# info stored in db.
 		#

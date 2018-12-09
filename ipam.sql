@@ -2,24 +2,24 @@
 CREATE TABLE ip_net_assign (
     "recordid" varchar(32) DEFAULT NULL,
     "prefix" inet DEFAULT NULL,
-    "addrspace" int2 DEFAULT NULL,
+    "addrspace" int4 DEFAULT NULL,
     "vrf" varchar(10) DEFAULT 'global',
-    "reservednode" int2 DEFAULT NULL,
-    "assignednode" int2 DEFAULT NULL,
+    "reservednode" int4 DEFAULT NULL,
+    "assignednode" int4 DEFAULT NULL,
     "expires" date DEFAULT NULL,
-    "industry" int2 DEFAULT NULL,
+    "industry" int4 DEFAULT NULL,
     "provider" varchar(20) DEFAULT NULL,
     "customer" varchar(20) DEFAULT NULL,
-    "assignstatus" int2 DEFAULT 0,
-    "description" int2 DEFAULT NULL,
-    "comment" int2 DEFAULT NULL,
-    "tags" int2 DEFAULT NULL,
-    "application" int2 DEFAULT NULL,
-    "addrfamily" int2 NOT NULL,
-    "casttype" int2 DEFAULT NULL,
-    "nettype" int2 DEFAULT NULL,
-    "share" bool DEFAULT true,
-    "usagetype" int2 DEFAULT NULL,
+    "assignstatus" int4 DEFAULT 0,
+    "description" int4 DEFAULT NULL,
+    "comments" int4 DEFAULT NULL,
+    "tags" int4 DEFAULT NULL,
+    "application" int4 DEFAULT NULL,
+    "addrfamily" int4 NOT NULL,
+    "casttype" int4 DEFAULT NULL,
+    "nettype" int4 DEFAULT NULL,
+    "shared" bool DEFAULT true,
+    "usagetype" int4 DEFAULT NULL,
     "leaf" bool DEFAULT false,
     "root" bool DEFAULT false,
     "updatetime" timestamp null,
@@ -38,71 +38,72 @@ COMMENT ON COLUMN "ip_net_assign"."root" IS 'True means root node.';
 
 
 CREATE TABLE ip_net_assign_log (
-    "id" varchar(32) DEFAULT NULL,
+    "idx" varchar(32) DEFAULT NULL,
     "operation" varchar(6) DEFAULT NULL,
     "optime" timestamp DEFAULT NULL,
     "user" text DEFAULT NULL,
     "recordid" varchar(32) DEFAULT NULL,
     "prefix" inet DEFAULT NULL,
-    "addrspace" int2 DEFAULT NULL,
+    "addrspace" int4 DEFAULT NULL,
     "vrf" varchar(10) DEFAULT NULL,
-    "reservednode" int2 DEFAULT NULL,
-    "assignednode" int2 DEFAULT NULL,
+    "reservednode" int4 DEFAULT NULL,
+    "assignednode" int4 DEFAULT NULL,
     "expires" date DEFAULT NULL,
-    "industry" int2 DEFAULT NULL,
+    "industry" int4 DEFAULT NULL,
     "provider" varchar(20) DEFAULT NULL,
     "customer" varchar(20) DEFAULT NULL,
-    "assignstatus" int2 DEFAULT 0,
-    "description" int2 DEFAULT NULL,
-    "comment" int2 DEFAULT NULL,
-    "tags" int2 DEFAULT NULL,
-    "application" int2 DEFAULT NULL,
-    "addrfamily" int2 NOT NULL,
-    "casttype" int2 DEFAULT NULL,
-    "nettype" int2 DEFAULT NULL,
-    "share" bool DEFAULT true,
-    "usagetype" int2 DEFAULT NULL,
+    "assignstatus" int4 DEFAULT 0,
+    "description" int4 DEFAULT NULL,
+    "comments" int4 DEFAULT NULL,
+    "tags" int4 DEFAULT NULL,
+    "application" int4 DEFAULT NULL,
+    "addrfamily" int4 NOT NULL,
+    "casttype" int4 DEFAULT NULL,
+    "nettype" int4 DEFAULT NULL,
+    "shared" bool DEFAULT true,
+    "usagetype" int4 DEFAULT NULL,
     "leaf" bool DEFAULT NULL,
     "root" bool DEFAULT NULL,
     "updatetime" timestamp null,
     "originalid" varchar(32) DEFAULT NULL,
-    PRIMARY KEY ("id")
+    PRIMARY KEY ("idx")
 );
 
 
 CREATE TABLE ip_net_provider (
-    "id" serial2,
-    "fullname" char(30) DEFAULT NULL,
-    "name" char(20) PRIMARY KEY,
-    "description" char(50) DEFAULT NULL
+    "idx" serial4,
+    "fullname" text DEFAULT NULL,
+    "shortname" text,
+    "description" text DEFAULT NULL,
+    PRIMARY KEY ("shortname")
 );
 
 
 CREATE TABLE ip_net_node(
-	"id" serial2 PRIMARY KEY,
-	"zone" int2[] DEFAULT NULL,
-	"datacenter" char(10)[] DEFAULT NULL,
-	"pod" char(10)[] DEFAULT NULL,
-	"rack" char(15)[] DEFAULT NULL,
-	"device" char(39)[] DEFAULT NULL
+	"idx" serial4 PRIMARY KEY,
+	"region" int4[] DEFAULT NULL,
+	"datacenter" varchar(10)[] DEFAULT NULL,
+	"pod" varchar(10)[] DEFAULT NULL,
+	"rack" varchar(15)[] DEFAULT NULL,
+	"device" varchar(39)[] DEFAULT NULL
 );
 
-COMMENT ON COLUMN "ip_net_node"."zone" IS 'Northern(1), Eastern(2), Southern(3), Western(4), Central(5), VERSEAN(6)';
+COMMENT ON COLUMN "ip_net_node"."region" IS 'Northern(1), Eastern(2), Southern(3), Western(4), Central(5), VERSEAN(6)';
 COMMENT ON COLUMN "ip_net_node"."device" IS 'Device is a switch or a server''s management ip address';
 
 
 CREATE TABLE ip_net_note(
-	"id" serial2 PRIMARY KEY,
-  "note" text 
+	"idx" serial4 PRIMARY KEY,
+    "note" text 
 );
 
 
 CREATE TABLE ip_net_user(
-	"id" serial2,
-  "username" char(10),
-  "mail" char(20) PRIMARY KEY,
-  "erp" char(15) DEFAULT NULL,
-  "phone" char(11) DEFAULT NULL,
-  "department" varchar(50) DEFAULT NULL,
-  "gm"  char(20) DEFAULT NULL
+    "idx" serial4,
+    "username" varchar(10),
+    "mail" varchar(20) PRIMARY KEY,
+    "erp" varchar(15) DEFAULT NULL,
+    "phone" varchar(11) DEFAULT NULL,
+    "department" varchar(50) DEFAULT NULL,
+    "gm"  varchar(20) DEFAULT NULL
 );

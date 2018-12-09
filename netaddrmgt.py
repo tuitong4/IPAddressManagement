@@ -1,12 +1,13 @@
 import logging
 import psycopg2
 import time
+import datetime
 import IPy
 import re
 import hashlib
 import time
 import random
-import json
+
 
 from errors import *
 from staticparams import *
@@ -21,7 +22,6 @@ class IPAM():
 	
 	def __init__(self):
 		self._logger = logging.getLogger(self.__class__.__name__)
-
 
 	def is_ipv4(self, ip):
 		"""Detect if the given ip is ipv4"""
@@ -53,7 +53,6 @@ class IPAM():
 		else:
 			raise IPAMValueError("Ivalid IP address %s" % ip)
 
-	
 	def connect_db(self, host=None, port=5432, database=None, user=None, password=None):
 		db_args = {}
 		db_args["host"] = host
@@ -254,6 +253,17 @@ class IPAM():
 		self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
 		self.sql_execute(sql, params)
 
+	def _update_prefix(self, attr, prefix):
+		#
+		# update a prefix' attribute
+		#
+		update, params = self.sql_expand_update(attr)
+		sql = "UPDATE ip_net_assign SET %s WHERE prefix = '%s'::INET" % (update, prefix)
+
+		self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
+		self.sql_execute(sql, params)
+
+
 	def exist_prefix(self, prefix, vrf="global", strict=False):
 		#
 		# strict is comparing prefixs exactly.
@@ -276,9 +286,11 @@ class IPAM():
 		#orgin_attr is a dict.
 		#required_attr is a list.
 		#
-		
+
 		for key in required_attr:
 			try :
+				if orgin_attr[key] is False:
+					continue
 				if not orgin_attr[key]:
 					raise IPAMValueError("'%s' need a pernament value rather than '' or None." % key)
 			except KeyError:
@@ -303,7 +315,6 @@ class IPAM():
 			if key in orgin_attr:
 				orgin_attr[key] = None
 
-
 	def emptiable_attribute(self, orgin_attr, emptiable_attribute):
 		#
 		# orgin_attr is a dict.
@@ -313,7 +324,6 @@ class IPAM():
 		for key in emptiable_attribute:
 			if key not in orgin_attr:
 				orgin_attr[key] = None
-
 
 	def inherit_attribute(self, orgin_attr, herit_attr, herited_attr):
 		#
@@ -328,7 +338,6 @@ class IPAM():
 			else:
 				raise IPAMValueError("The key '%s' is not in herit attribute.")
 
-
 	def inheritable_attribute(self, orgin_attr, herit_attr, herited_attr):
 		#
 		# orgin_attr is a dict.
@@ -341,7 +350,6 @@ class IPAM():
 					orgin_attr[key] = herited_attr.pop(key)
 				else:
 					raise IPAMValueError("The key '%s' is not in herit attribute.")
-
 
 	def add_root_prefix(self, prefix=None, addrspace=None, vrf="global", 
 						provider=None, casttype=UNICAST, nettype=None):
@@ -370,13 +378,12 @@ class IPAM():
 		attr["root"] = True
 		
 		attr["recordid"] = md5_timestamp()
-		attr["updatetime"] = time.time()
+		attr["updatetime"] = datetime.datetime.now()
 
 		self._add_prefix(attr)
 
 		self.sql_commit()
 		return attr["recordid"]
-
 
 	def assign_prefix(self, attr, refer_prefix):
 		#
@@ -384,28 +391,35 @@ class IPAM():
 		#
 		
 		sub_prefix = attr["prefix"]
+		vrf = attr["vrf"]
 		if not sub_prefix:
 			raise IPAMValueError("Prefix should be specified!")
+
+		if not vrf:
+			raise IPAMValueError("VRF is requried, but get 'None'!")
 		
 		if IPy.IP(sub_prefix) not in IPy.IP(refer_prefix):
 			raise IPAMValueError("Prefix %s is not a sub prefix of %s." % (sub_prefix, refer_prefix))
+
+		sql = """SELECT * FROM ip_net_assign WHERE '%s'::INET = prefix AND vrf = '%s'""" % (refer_prefix, vrf)
+		self.sql_execute("SELECT row_to_json(r) FROM (%s) r" % sql)
 		
-		self.sql_execute("SELECT row_to_json(r) FROM (SELECT * FROM ip_net_assign) r")
-		refer_attr = json.loads(self._curs_pg.fetchone()[0])
+		refer_attr = self._curs_pg.fetchone()[0]
 
 		if IPy.IP(sub_prefix) == IPy.IP(refer_prefix) and refer_prefix["root"]:
 			attr["root"] = True
-			self.update_prefix(attr)
+			self.update_prefix(attr, refer_attr, status_opt=True)
 			return
 		else:
 			attr["root"] = False
+
 
 		if self.exist_prefix(sub_prefix, attr["vrf"]):
 			raise IPAMDuplicateError("Prefix or subprefix '%s' is already exists." % sub_prefix)
 
 		#Case 1
 		if attr["assignstatus"] == RESERVED:
-			required_attr = ("reservednode")
+			required_attr = ("reservednode",)
 			omitted_attr  = ("assignednode", "expires", "customer")
 			inherit_attr  = ("addrspace", "vrf", "provider", "addrfamily", "nettype")
 
@@ -415,7 +429,7 @@ class IPAM():
 
 		#Case 2
 		elif attr["assignstatus"] == ASSIGNED:
-			required_attr = ("assignednode", "customer", "application", "casttype", "share", "useage")
+			required_attr = ("assignednode", "customer", "application", "casttype", "shared", "usagetype")
 			inherit_attr  = ("addrspace", "vrf", "provider", "addrfamily", "nettype")
 			inheritable_attr = ("reservednode", "industry")
 
@@ -423,13 +437,16 @@ class IPAM():
 			self.inherit_attribute(attr, inherit_attr, refer_attr)
 			self.inheritable_attribute(attr, inheritable_attr, refer_attr)
 
+			if not attr["industry"] :
+				raise IPAMValueError("You should specific the industry when assign a prefix to users!")
+
 			attr["leaf"] = True
 
 		#Case 3
 		elif attr["assignstatus"] == IDLE:
 			omitted_attr  = ("reservednode", "assignednode", "expires", "industry", "customer", "application", "casttype",\
-							"share", "useagetype")
-			inherit_attr  = ("addrspace", "vrf", "provider", "description", "comment", "tags", "addrfamily", "nettype")
+							"shared", "usagetype")
+			inherit_attr  = ("addrspace", "vrf", "provider", "description", "comments", "tags", "addrfamily", "nettype")
 			
 			self.omitte_attribute(attr, omitted_attr)
 			self.inherit_attribute(attr, inherit_attr, refer_attr)
@@ -439,8 +456,8 @@ class IPAM():
 		#Case 4
 		elif attr["assignstatus"] == QUARANTINE:
 			omitted_attr  = ("reservednode", "assignednode", "expires", "industry", "customer", "application", "casttype",\
-							"share", "useagetype")
-			inherit_attr  = ("addrspace", "vrf", "provider", "description", "comment", "tags", "addrfamily", "nettype")
+							"shared", "usagetype")
+			inherit_attr  = ("addrspace", "vrf", "provider", "description", "comments", "tags", "addrfamily", "nettype")
 			
 			self.omitte_attribute(attr, omitted_attr)
 			self.inherit_attribute(attr, inherit_attr, refer_attr)
@@ -450,35 +467,58 @@ class IPAM():
 			raise IPAMValueError("Unsupported status '%s'." % attr["assignstatus"])
 
 		attr["recordid"] = md5_timestamp()
-		attr["updatetime"] = time.time()
+		attr["updatetime"] = datetime.datetime.now()
 		attr["originalid"] = None
 
 		self._add_prefix(attr)
-		self.sql_commit()
 
 		return
 
-
-	def update_prefix(self, attr):
+	def update_prefix(self, attr, old_attr=None, status_opt=True):
+		# 
+		# status_opt = True, means update the assignstauts of the prefix.
+		# status_opt = Fasle, means update other attributes of the prefix except assignstauts.
+		#
 		prefix = attr["prefix"]
 		vrf = attr["vrf"]
 
-		sql = """SELECT * FROM ip_net_assign WHERE '%s'::INET = prefix AND vrf = '%s'""" % (prefix, vrf)
-		self.sql_execute("SELECT row_to_json(r) FROM (%s) r" % sql)
-		old_attr = json.loads(self._curs_pg.fetchone()[0])		
+		if not status_opt:
+			updateble_attr = ("expires", "industry", "provider", "customer", "description", "comments",\
+							   "tags", "application", "casttype", "shared", "usagetype")
+			_update_attr = {}
+			for key in updateble_attr:
+				if key in attr:
+					_update_attr[key] = attr
+
+			if not attr:
+				raise IPAMValueError("Nothing to update!")
+			
+			self._update_prefix(attr, prefix)
+			return
+
+
+		if old_attr is None:
+			sql = """SELECT * FROM ip_net_assign WHERE '%s'::INET = prefix AND vrf = '%s'""" % (prefix, vrf)
+			self.sql_execute("SELECT row_to_json(r) FROM (%s) r" % sql)
+			resp = self._curs_pg.fetchone()
+			if resp:
+				old_attr = resp[0]
+			else:
+				raise IPAMValueError("No prefix whith VRF '%s'!" % vrf )
+			
 		
 		old_status = old_attr["assignstatus"]
 		new_status = attr["assignstatus"]
-
+		
 		#Case 1: Assigned --> Reserved
 		if old_status == ASSIGNED and new_status == RESERVED:
 			omitted_attr = ("prefix", "vrf", "addrspace", "provider", "addrfamily", "nettype")
 
-			self.sql_execute("SELECT row_to_json(r) FROM (SELECT * FROM ip_net_assign_log where id = '%s') r" % old_attr["originalid"])
-			orgin_attr = json.loads(self._curs_pg.fetchone()[0])
+			self.sql_execute("SELECT row_to_json(r) FROM (SELECT * FROM ip_net_assign_log where idx = '%s') r" % old_attr["originalid"])
+			orgin_attr = self._curs_pg.fetchone()[0]
 			#TODO: check orgin_attr when it is {}.
 
-			inherit_attr = ("reservednode", "industry", "description", "comment", "tags", "application", "casttype", "share", "usagetype")
+			inherit_attr = ("reservednode", "industry", "description", "comments", "tags", "application", "casttype", "shared", "usagetype")
 			empty_attr = ("assignednode", "expires", "customer")
 
 			self.omitte_attribute(attr, omitted_attr)
@@ -489,8 +529,8 @@ class IPAM():
 		#Case 2: Reserved --> Assigned
 		elif old_status == RESERVED and new_status == ASSIGNED:
 			omitted_attr = ("prefix", "vrf", "addrspace", "reservednode", "provider", "addrfamily", "nettype")
-			required_attr = ("assignednode", "industry", "application", "casttype", "share", "usagetype")
-
+			required_attr = ("assignednode", "industry", "application", "casttype", "shared", "usagetype")
+			
 			self.omitte_attribute(attr, omitted_attr)
 			self.verify_attribute(attr, required_attr)
 			attr["leaf"] = True
@@ -498,8 +538,8 @@ class IPAM():
 		#Case 3: Reserved --> Reserved
 		elif old_status == RESERVED and new_status == RESERVED:
 			omitted_attr = ("prefix", "vrf", "addrspace", "assignednode", "expires", "provider", "customer", "addrfamily", "nettype")
-			required_attr = ("assignednode")
-			emptiable_attr = ("industry", "description", "comment", "tags", "application", "casttype", "share", "usagetype")
+			required_attr = ("reservednode",)
+			emptiable_attr = ("industry", "description", "comments", "tags", "application", "casttype", "shared", "usagetype")
 
 			self.omitte_attribute(attr, omitted_attr)
 			self.verify_attribute(attr, required_attr)
@@ -510,7 +550,7 @@ class IPAM():
 		#Case 4: Reserved --> Idle
 		elif  old_status == RESERVED and new_status == IDLE:
 			omitted_attr = ("prefix", "vrf", "addrspace", "reservednode", "expires", "provider", "customer", "addrfamily", "nettype")
-			empty_attr = ("assignednode", "industry", "description", "comment", "tags", "application", "casttype", "share", "usagetype")
+			empty_attr = ("assignednode", "industry", "description", "comments", "tags", "application", "casttype", "shared", "usagetype")
 			
 			self.omitte_attribute(attr, omitted_attr)
 			self.empty_attribute(attr, empty_attr)
@@ -520,7 +560,7 @@ class IPAM():
 		#Case 5: Reserved --> Quarantine
 		elif  old_status == RESERVED and new_status == QUARANTINE:
 			omitted_attr = ("prefix", "vrf", "addrspace", "reservednode", "expires", "provider", "customer", "addrfamily", "nettype")
-			empty_attr = ("assignednode", "industry", "description", "comment", "tags", "application", "casttype", "share", "usagetype")
+			empty_attr = ("assignednode", "industry", "description", "comments", "tags", "application", "casttype", "shared", "usagetype")
 			
 			self.omitte_attribute(attr, omitted_attr)
 			self.empty_attribute(attr, empty_attr)
@@ -530,8 +570,8 @@ class IPAM():
 		#Case 6: Idle --> Assigned
 		elif old_status == IDLE and new_status == ASSIGNED:
 			omitted_attr = ("prefix", "vrf", "addrspace",  "provider", "addrfamily", "nettype")
-			required_attr = ("assignednode", "industry", "customer", "application", "casttype", "share", "usagetype")
-			emptiable_attr = ("description", "comment", "tags")
+			required_attr = ("assignednode", "industry", "customer", "application", "casttype", "shared", "usagetype")
+			emptiable_attr = ("description", "comments", "tags")
 			
 			self.omitte_attribute(attr, omitted_attr)
 			self.emptiable_attribute(attr, emptiable_attr)
@@ -546,8 +586,8 @@ class IPAM():
 		#Case 7: Idle --> Reserved
 		elif old_status == IDLE and new_status == RESERVED:
 			omitted_attr = ("prefix", "vrf", "addrspace", "assignednode", "provider", "addrfamily", "nettype")
-			required_attr = ("reservednode")
-			emptiable_attr = ("description", "comment", "tags")
+			required_attr = ("reservednode",)
+			emptiable_attr = ("description", "comments", "tags")
 			
 			self.omitte_attribute(attr, omitted_attr)
 			self.emptiable_attribute(attr, emptiable_attr)
@@ -559,7 +599,7 @@ class IPAM():
 		elif old_status == IDLE and new_status == QUARANTINE:
 			omitted_attr = ("prefix", "addrspace", "vrf", "reservednode", "assignednode", \
 			 "expires", "industry", "provider", "customer", "description", \
-			  "comment", "tags", "application", "addrfamily", "casttype", "nettype", "share", \
+			  "comments", "tags", "application", "addrfamily", "casttype", "nettype", "shared", \
 			   "usagetype", "leaf", "root")
 
 			self.omitte_attribute(attr, omitted_attr)
@@ -568,7 +608,7 @@ class IPAM():
 		elif old_status == QUARANTINE and new_status == IDLE:
 			omitted_attr = ("prefix", "addrspace", "vrf", "reservednode", "assignednode", \
 			 "expires", "industry", "provider", "customer", "description", \
-			  "comment", "tags", "application", "addrfamily", "casttype", "nettype", "share", \
+			  "comments", "tags", "application", "addrfamily", "casttype", "nettype", "shared", \
 			   "usagetype", "leaf", "root")
 
 			self.omitte_attribute(attr, omitted_attr)
@@ -576,8 +616,8 @@ class IPAM():
 		#case 10: Quarantine -->Assigned
 		elif old_status == QUARANTINE and new_status == ASSIGNED:
 			omitted_attr = ("prefix", "vrf", "addrspace",  "provider", "addrfamily", "nettype")
-			required_attr = ("assignednode", "industry", "customer", "application", "casttype", "share", "usagetype")
-			emptiable_attr = ("description", "comment", "tags")
+			required_attr = ("assignednode", "industry", "customer", "application", "casttype", "shared", "usagetype")
+			emptiable_attr = ("description", "comments", "tags")
 			
 			self.omitte_attribute(attr, omitted_attr)
 			self.emptiable_attribute(attr, emptiable_attr)
@@ -592,9 +632,9 @@ class IPAM():
 
 		#Case 11: Quarantine --> Reserved
 		elif old_status == QUARANTINE and new_status == RESERVED:
-			omitted_attr = ("prefix", "vrf", "addrspace", "assignednode", "provider", "addrfamily", "nettype")
-			required_attr = ("reservednode")
-			emptiable_attr = ("description", "comment", "tags")
+			omitted_attr = ("vrf", "addrspace", "assignednode", "provider", "addrfamily", "nettype")
+			required_attr = ("reservednode",)
+			emptiable_attr = ("description", "comments", "tags")
 			
 			self.omitte_attribute(attr, omitted_attr)
 			self.emptiable_attribute(attr, emptiable_attr)
@@ -607,10 +647,137 @@ class IPAM():
 
 		attr["root"] = old_attr["root"]
 		attr["recordid"] = md5_timestamp()
-		attr["updatetime"] = time.time()
+		attr["updatetime"] = datetime.datetime.now()
 		attr["originalid"] = old_attr["recordid"]
 
-		self._add_prefix(attr)
-		self.sql_commit()
+		self._update_prefix(attr, prefix)
 
 		return
+
+
+	def _add_porvider(self, attr):
+
+		required_attr = ("fullname", "shortname")
+		self.verify_attribute(attr, required_attr)
+
+		insert, params = self.sql_expand_insert(attr)
+		sql = """INSERT INTO ip_net_provider %s RETURNING id""" % insert
+
+		self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
+		self.sql_execute(sql, params)
+		return self._curs_pg.fetchone()[0]
+
+
+	def add_porvider(self, attr):
+		if not isinstance(attr, dict):
+			raise IPAMInvalidValueTypeError("Invalid input attribute type %s." % type(attr))
+
+		try:
+			record_id = self._add_porvider(attr)
+		except IPAMDuplicateError:
+			raise("Provider '%s' is already exisits!" % attr["shortname"])
+
+		return record_id
+
+	def _update_provider(self, attr):
+		update, params = self.sql_expand_update(attr)
+		sql = """UPDATE ip_net_provider SET %s RETURNING id""" % update
+
+		self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
+		self.sql_execute(sql, params)
+		record_id = next(self._curs_pg)[0]
+
+		return record_id
+
+	def update_provider(self, attr, old_provider_name=None):
+		updateble_attr = ("fullname", "shortname", "description")
+		_update_attr = {}
+		for key in updateble_attr:
+			if key in attr:
+				_update_attr[key] = attr
+
+		if not attr:
+			raise IPAMValueError("Nothing to update!")
+
+		try:
+			self._update_provider(attr)
+
+			#Update all relation provider shortname of table ip_net_assign.
+			if not old_provider_name:
+				sql = "UPDATE ip_net_assign SET porvider = '%s' where provider = '%s'" % (attr["shortname"], old_provider_name)
+				self.sql_execute(sql)
+		except Exception as e:
+			raise(e)	
+		
+	def add_node(self, attr):
+		required_attr = ("region", "datacenter", "pod", "rack", "device")
+		for key in required_attr:
+			if key not in attr:
+				attr[key] = None
+		
+		sql = "SELECT update_ip_net_node(%s, %s, %s, %s, %s, %s, %s, %s);"
+		params = (attr["region"], attr["datacenter"], attr["pod"], attr["rack"], attr["device"], 'insert', None)
+
+		self.sql_execute(sql, params)
+		return self._curs_pg.fetchone()[0]
+
+	def update_node(self, attr):
+		required_attr = ("region", "datacenter", "pod", "rack", "device", "nodeidx")
+		for key in required_attr:
+			if key not in attr:
+				attr[key] = None
+		if not attr["nodeidx"] :
+			raise IPAMValueError("The oringial node idx should be specified!")
+
+		sql = "SELECT update_ip_net_node(%s, %s, %s, %s, %s, %s, %s, %s);"
+		params = (attr["region"], attr["datacenter"], attr["pod"], attr["rack"], attr["device"], 'update', attr["nodeidx"])
+
+		self.sql_execute(sql, params)
+		return self._curs_pg.fetchone()[0]
+
+	def delete_node(self, nodeidx=None):
+		if not nodeidx :
+			raise IPAMValueError("The oringial node idx should be specified!")
+
+		sql = "SELECT update_ip_net_node(NULL, NULL, NULL, NULL, NULL, NULL, %s, %s);"
+		params = ("delete", nodeidx)
+
+		self.sql_execute(sql, params)
+		resp_code = self._curs_pg.fetchone()[0]
+		
+		if resp_code == -2:
+			raise("Could not delete the node for it is in use.")
+
+		return resp_code
+
+if __name__ == "__main__":
+	ipam = IPAM()
+	ipam.connect_db(host="11.3.245.227", port=443, database="postgres", user="postgres", password="123456")
+
+	attr = {
+    "prefix": "114.114.4.0/24",
+    "addrspace": 1,
+    "vrf": "global",
+    "reservednode": 11,
+    "assignednode": 12,
+    "expires": None,
+    "assignstatus": ASSIGNED,
+    "description": 1,
+    "comments": None,
+    "tags": 12,
+    "application": 3,
+    "casttype": UNICAST,
+    "nettype": COMMON,
+    "shared": True,
+    "usagetype": SERVERMANAGENTADDRESS,
+	"customer" : 1,
+	"industry" : JDCOM,
+	}
+	try:
+		ipam.update_prefix(attr)
+		ipam.close_db()
+	except Exception as e:
+		print(e)
+
+	finally:	
+		ipam.close_db()
