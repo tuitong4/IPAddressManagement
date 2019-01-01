@@ -746,9 +746,53 @@ class IPAM():
 		resp_code = self._curs_pg.fetchone()[0]
 		
 		if resp_code == -2:
-			raise("Could not delete the node for it is in use.")
+			raise IPAMUnupdateValueError("Could not delete the node for it's in use.")
 
 		return resp_code
+
+	def add_note(self, note):
+		if note is None or note == "":
+			raise IPAMValueError("Note value must not be '' or None.")
+
+		attr = {"note":note}
+		insert, params = self.sql_expand_insert(attr)
+		sql = "INSERT INTO ip_net_note %s RETURNING id" % insert
+		self._logger.info("Execute: SQL:%s. PARAMS:%s" % (sql, params))
+		self.sql_execute(sql, params)
+
+		record_id = next(self._curs_pg)[0]
+
+		return record_id
+
+	def update_note(self, note_idx, new_note):
+		if not note_idx:
+			raise IPAMValueError("The oringial note index should be specified!")
+
+		if new_note is None or new_note == "":
+			raise IPAMValueError("Note value must not be '' or None.")
+
+		#TODO: 处理字符串带有特殊字符的问题，以及SQL注入。
+		sql = "UPDATE ip_net_note SET note = '%s' where idx = '%s'" % (new_note, note_idx)
+		self._logger.info("Execute: SQL:%s." % sql)
+		self.sql_execute(sql)
+
+		return note_idx		
+
+	def delete_note(self, note_idx):
+		if not note_idx:
+			raise IPAMValueError("The oringial note index should be specified!")
+
+		sql = "SELECT count(*) from ip_net_assign where description = '%s' or comments = '%s' or tags = '%s'" % (note_idx, note_idx, note_idx)
+		self._logger.info("Execute: SQL:%s." % sql)
+		self.sql_execute(sql)
+		count = next(self._curs_pg)[0]
+		if count > 0:
+			raise IPAMUnupdateValueError("Could not delete the note for it's in use.")
+
+		sql_delete = "DELETE FROM ip_net_note where note_idx = '%s'" % note_idx
+		self.sql_execute(sql)
+		return note_idx		
+
 
 if __name__ == "__main__":
 	ipam = IPAM()
